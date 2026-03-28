@@ -16,9 +16,11 @@
 	Simulator Connector for AirSim
 */
 
-#include "SIM_AirSim.h"
+#include "SIM_config.h"
 
-#if HAL_SIM_AIRSIM_ENABLED
+#if AP_SIM_AIRSIM_ENABLED
+
+#include "SIM_AirSim.h"
 
 #include <stdio.h>
 #include <arpa/inet.h>
@@ -164,7 +166,7 @@ bool AirSim::parse_sensors(const char *json)
                 break;
 
             case DATA_FLOAT:
-                *((float *)key.ptr) = atof(p);
+                *((float *)key.ptr) = strtof(p, nullptr);
                 break;
 
             case DATA_DOUBLE:
@@ -244,7 +246,7 @@ bool AirSim::parse_sensors(const char *json)
                         v->data = d;
                         v->length = n+1;
                     }
-                    v->data[n] = atof(p);
+                    v->data[n] = strtof(p, nullptr);
                     n++;
                     p = strchr(p,',');
                     if (!p) {
@@ -431,4 +433,4 @@ void AirSim::report_FPS(void)
     }
 }
 
-#endif  // HAL_SIM_AIRSIM_ENABLED
+#endif  // AP_SIM_AIRSIM_ENABLED

@@ -8,29 +8,27 @@ based on build_binaries.sh by Andrew Tridgell, March 2013
 AP_FLAKE8_CLEAN
 """
 
+from __future__ import annotations
+
 import datetime
 import optparse
 import os
 import re
 import shutil
-import time
 import string
 import subprocess
 import sys
+import time
 import traceback
+
+import board_list
+import build_binaries_history
+import gen_stable
 
 # local imports
 import generate_manifest
-import gen_stable
-import build_binaries_history
 
-import board_list
 from board_list import AP_PERIPH_BOARDS
-
-if sys.version_info[0] < 3:
-    running_python3 = False
-else:
-    running_python3 = True
 
 
 def topdir():
@@ -135,10 +133,9 @@ class build_binaries(object):
                     # select not available on Windows... probably...
                 time.sleep(0.1)
                 continue
-            if running_python3:
-                x = bytearray(x)
-                x = filter(lambda x : chr(x) in string.printable, x)
-                x = "".join([chr(c) for c in x])
+            x = bytearray(x)
+            x = filter(lambda x : chr(x) in string.printable, x)
+            x = "".join([chr(c) for c in x])
             output += x
             x = x.rstrip()
             if show_output:
@@ -362,10 +359,7 @@ is bob we will attempt to checkout bob-AVR'''
         with open(filepath, 'rb') as fh:
             content = fh.read()
 
-        if running_python3:
-            return content.decode('ascii')
-
-        return content
+        return content.decode('ascii')
 
     def string_in_filepath(self, string, filepath):
         '''returns true if string exists in the contents of filepath'''
@@ -389,8 +383,10 @@ is bob we will attempt to checkout bob-AVR'''
                 pass
 
     def build_vehicle(self, tag, vehicle, boards, vehicle_binaries_subdir,
-                      binaryname, frames=[None]):
+                      binaryname, frames: list | None = None):
         '''build vehicle binaries'''
+        if frames is None:
+            frames = [None]
         self.progress("Building %s %s binaries (cwd=%s)" %
                       (vehicle, tag, os.getcwd()))
 
@@ -507,7 +503,7 @@ is bob we will attempt to checkout bob-AVR'''
                 if os.path.exists(ef_path):
                     try:
                         features_text = self.run_program("EF", [ef_path, bare_path], show_output=False)
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001
                         self.print_exception_caught(e)
                         self.progress("Failed to extract features")
                         pass
@@ -553,7 +549,7 @@ is bob we will attempt to checkout bob-AVR'''
                             self.progress("Writing (%s)" % features_filepath)
                             self.write_string_to_filepath(features_text, features_filepath)
                         shutil.copy(path, os.path.join(tdir, target_filename))
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001
                         self.print_exception_caught(e)
                         self.progress("Failed to copy %s to %s: %s" % (path, tdir, str(e)))
                 # why is touching this important? -pb20170816
@@ -579,7 +575,7 @@ is bob we will attempt to checkout bob-AVR'''
     def get_exception_stacktrace(self, e):
         try:
             return self._get_exception_stacktrace(e)
-        except Exception:
+        except Exception:  # noqa: BLE001 — defensive wrapper, must not raise
             return "FAILED TO GET EXCEPTION STACKTRACE"
 
     def print_exception_caught(self, e, send_statustext=True):
@@ -593,7 +589,7 @@ is bob we will attempt to checkout bob-AVR'''
         '''build Copter binaries'''
 
         boards = []
-        boards.extend(["aerofc-v1", "bebop"])
+        boards.extend(["aerofc-v1"])
         boards.extend(self.board_list.find_autobuild_boards('Copter'))
         self.build_vehicle(tag,
                            "ArduCopter",
@@ -605,7 +601,6 @@ is bob we will attempt to checkout bob-AVR'''
     def build_arduplane(self, tag):
         '''build Plane binaries'''
         boards = self.board_list.find_autobuild_boards('Plane')[:]
-        boards.append("disco")
         self.build_vehicle(tag,
                            "ArduPlane",
                            boards,
@@ -654,7 +649,7 @@ is bob we will attempt to checkout bob-AVR'''
                            "blimp")
 
     def generate_manifest(self):
-        '''generate manigest files for GCS to download'''
+        '''generate manifest files for GCS to download'''
         self.progress("Generating manifest")
         base_url = 'https://firmware.ardupilot.org'
         generator = generate_manifest.ManifestGenerator(self.binaries,

@@ -14,31 +14,39 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 import launch_pytest
+
 from launch import LaunchDescription
 
 
-@launch_pytest.fixture
+@launch_pytest.fixture(scope="function")
 def launch_sitl_copter_dds_serial(sitl_copter_dds_serial):
     """Launch SITL Copter with DDS over serial."""
     sitl_ld, sitl_actions = sitl_copter_dds_serial
     yield LaunchDescription([sitl_ld, launch_pytest.actions.ReadyToTest()]), sitl_actions
 
 
-@launch_pytest.fixture
+@launch_pytest.fixture(scope="function")
 def launch_sitl_copter_dds_udp(sitl_copter_dds_udp):
     """Launch SITL Copter with DDS over UDP."""
     sitl_ld, sitl_actions = sitl_copter_dds_udp
     yield LaunchDescription([sitl_ld, launch_pytest.actions.ReadyToTest()]), sitl_actions
 
 
-@launch_pytest.fixture
+@launch_pytest.fixture(scope="function")
+def launch_sitl_copter_dds_udp_use_ns(sitl_copter_dds_udp_use_ns):
+    """Launch SITL Copter with DDS over UDP and with namespaced ros2 names."""
+    sitl_ld, sitl_actions = sitl_copter_dds_udp_use_ns
+    yield LaunchDescription([sitl_ld, launch_pytest.actions.ReadyToTest()]), sitl_actions
+
+
+@launch_pytest.fixture(scope="function")
 def launch_sitl_plane_dds_serial(sitl_plane_dds_serial):
     """Launch SITL Plane with DDS over serial."""
     sitl_ld, sitl_actions = sitl_plane_dds_serial
     yield LaunchDescription([sitl_ld, launch_pytest.actions.ReadyToTest()]), sitl_actions
 
 
-@launch_pytest.fixture
+@launch_pytest.fixture(scope="function")
 def launch_sitl_plane_dds_udp(sitl_plane_dds_udp):
     """Launch SITL Plane with DDS over UDP."""
     sitl_ld, sitl_actions = sitl_plane_dds_udp

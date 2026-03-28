@@ -302,14 +302,14 @@ const AP_Param::GroupInfo NavEKF3::var_info[] = {
 
     // Optical flow measurement parameters
 
-    // @Param: MAX_FLOW
-    // @DisplayName: Maximum valid optical flow rate
-    // @Description: This sets the magnitude maximum optical flow rate in rad/sec that will be accepted by the filter
+    // @Param: FLOW_MAX
+    // @DisplayName: Optical flow rate maximum
+    // @Description: The maximum optical flow rate in rad/sec that will be accepted by the filter.  Flow rates above this value will not be fused.
     // @Range: 1.0 4.0
     // @Increment: 0.1
     // @User: Advanced
     // @Units: rad/s
-    AP_GROUPINFO("MAX_FLOW", 20, NavEKF3, _maxFlowRate, 2.5f),
+    AP_GROUPINFO("FLOW_MAX", 20, NavEKF3, _maxFlowRate, 2.5f),
 
     // @Param: FLOW_M_NSE
     // @DisplayName: Optical flow measurement noise (rad/s)
@@ -739,8 +739,8 @@ const AP_Param::GroupInfo NavEKF3::var_info2[] = {
 
     // @Param: OPTIONS
     // @DisplayName: Optional EKF behaviour
-    // @Description: EKF optional behaviour. Bit 0 (JammingExpected): Setting JammingExpected will change the EKF behaviour such that if dead reckoning navigation is possible it will require the preflight alignment GPS quality checks controlled by EK3_GPS_CHECK and EK3_CHECK_SCALE to pass before resuming GPS use if GPS lock is lost for more than 2 seconds to prevent bad position estimate. Bit 1 (Manual lane switching): DANGEROUS – If enabled, this disables automatic lane switching. If the active lane becomes unhealthy, no automatic switching will occur. Users must manually set EK3_PRIMARY to change lanes. No health checks will be performed on the selected lane. Use with extreme caution.
-    // @Bitmask: 0:JammingExpected, 1: ManualLaneSwitching
+    // @Description: EKF optional behaviour. Bit 0 (JammingExpected): Setting JammingExpected will change the EKF behaviour such that if dead reckoning navigation is possible it will require the preflight alignment GPS quality checks controlled by EK3_GPS_CHECK and EK3_CHECK_SCALE to pass before resuming GPS use if GPS lock is lost for more than 2 seconds to prevent bad position estimate. Bit 1 (Manual lane switching): DANGEROUS – If enabled, this disables automatic lane switching. If the active lane becomes unhealthy, no automatic switching will occur. Users must manually set EK3_PRIMARY to change lanes. No health checks will be performed on the selected lane. Use with extreme caution.  Bit 2 (Optflow may use terrain alt): Terrain SRTM data will be used if the vehicle climbs above the rangefinder's range allowing optical flow to be used at higher altitudes.
+    // @Bitmask: 0:JammingExpected, 1:ManualLaneSwitching, 2:Optflow may use terrain alt
     // @User: Advanced
     AP_GROUPINFO("OPTIONS",  11, NavEKF3, _options, 0),
 
@@ -1154,11 +1154,13 @@ bool NavEKF3::pre_arm_check(bool requires_position, char *failure_msg, uint8_t f
 
     // check if using compass (i.e. EK3_SRCn_YAW) with deprecated MAG_CAL values (5 was EXTERNAL_YAW, 6 was EXTERNAL_YAW_FALLBACK)
     const int8_t magCalParamVal = _magCal.get();
-    const AP_NavEKF_Source::SourceYaw yaw_source = sources.getYawSource();
-    if (((magCalParamVal == 5) || (magCalParamVal == 6)) && (yaw_source != AP_NavEKF_Source::SourceYaw::GPS)) {
-        // yaw source is configured to use compass but MAG_CAL valid is deprecated
-        dal.snprintf(failure_msg, failure_msg_len, "EK3_MAG_CAL and EK3_SRC1_YAW inconsistent");
-        return false;
+    for (uint8_t i = 0; i < num_cores; i++) {
+        const AP_NavEKF_Source::SourceYaw yaw_source = sources.getYawSource(i);
+        if (((magCalParamVal == 5) || (magCalParamVal == 6)) && (yaw_source != AP_NavEKF_Source::SourceYaw::GPS)) {
+            // yaw source is configured to use compass but MAG_CAL valid is deprecated
+            dal.snprintf(failure_msg, failure_msg_len, "EK3_MAG_CAL and EK3_SRC1_YAW inconsistent");
+            return false;
+        }
     }
 
     if (!core) {
@@ -1243,12 +1245,25 @@ bool NavEKF3::getAirSpdVec(Vector3f &vel) const
     return false;
 }
 
-// return the innovation in m/s, innovation variance in (m/s)^2 and age in msec of the last TAS measurement processed
-bool NavEKF3::getAirSpdHealthData(float &innovation, float &innovationVariance, uint32_t &age_ms) const
+// return the innovation in m/s, innovation variance in (m/s)^2 and age in msec of the last TAS measurement processed for a given sensor instance
+bool NavEKF3::getAirSpdHealthData(uint8_t instance, float &innovation, float &innovationVariance, uint32_t &age_ms) const
 {
-    if (core) {
+    if (core == nullptr) {
+        return false;
+    }
+
+    // Return primary if it is configured to use the given instance
+    if (core[primary].getActiveAirspeed() == instance) {
         return core[primary].getAirSpdHealthData(innovation, innovationVariance, age_ms);
     }
+
+    // See if another core is using the given instance
+    for (uint8_t i = 0; i < num_cores; i++) {
+        if (core[i].getActiveAirspeed() == instance) {
+            return core[i].getAirSpdHealthData(innovation, innovationVariance, age_ms);
+        }
+    }
+
     return false;
 }
 
@@ -1524,6 +1539,15 @@ bool NavEKF3::getVariances(float &velVar, float &posVar, float &hgtVar, Vector3f
     return core[primary].getVariances(velVar, posVar, hgtVar, magVar, tasVar, offset);
 }
 
+// return 1-sigma position and velocity uncertainty from the EKF state error covariance matrix P
+bool NavEKF3::getPosVelUncertainty(float &pos_horiz_m, float &pos_vert_m, float &vel_m_s) const
+{
+    if (core == nullptr) {
+        return false;
+    }
+    return core[primary].getPosVelUncertainty(pos_horiz_m, pos_vert_m, vel_m_s);
+}
+
 // get a source's velocity innovations
 // returns true on success and results are placed in innovations and variances arguments
 bool NavEKF3::getVelInnovationsAndVariancesForSource(AP_NavEKF_Source::SourceXY source, Vector3f &innovations, Vector3f &variances) const
@@ -1562,11 +1586,32 @@ bool NavEKF3::using_extnav_for_yaw() const
     return core[primary].using_extnav_for_yaw();
 }
 
+// are we using a gps?
+bool NavEKF3::using_gps(void) const
+{
+    if (!core) {
+        return false;
+    }
+    return core[primary].using_gps();
+}
+
 // check if configured to use GPS for horizontal position estimation
 bool NavEKF3::configuredToUseGPSForPosXY(void) const
 {
     // 0 = use 3D velocity, 1 = use 2D velocity, 2 = use no velocity, 3 = do not use GPS
-    return  (sources.getPosXYSource() == AP_NavEKF_Source::SourceXY::GPS);
+    if (sources.getPosXYSource(primary) == AP_NavEKF_Source::SourceXY::GPS) {
+        return true;
+    }
+    return false;
+}
+
+// check if configured to use GPS for horizontal position estimation
+bool NavEKF3::configuredToUseGPSForPos(void) const
+{
+    if (configuredToUseGPSForPosXY() || sources.getPosZSource(primary) == AP_NavEKF_Source::SourceZ::GPS) {
+        return true;
+    }
+    return false;
 }
 
 // write the raw optical flow measurements
@@ -1692,6 +1737,30 @@ void NavEKF3::writeWheelOdom(float delAng, float delTime, uint32_t timeStamp_ms,
             core[i].writeWheelOdom(delAng, delTime, timeStamp_ms, posOffset, radius);
         }
     }
+}
+
+/* 
+ * Write terrain altitude (derived from SRTM) in meters above the origin
+ * only used by optical flow when out of rangefinder range
+ */
+void NavEKF3::writeTerrainData(float alt_m)
+{
+#if EK3_FEATURE_OPTFLOW_SRTM
+    // write altitude to DAL
+    dal.writeTerrainData(alt_m);
+
+    // exit immediately if feature is not enabled
+    if (!option_is_enabled(Option::OptflowMayUseTerrainAlt)) {
+        return;
+    }
+
+    // send to each core
+    if (core) {
+        for (uint8_t i=0; i<num_cores; i++) {
+            core[i].writeTerrainData(alt_m);
+        }
+    }
+#endif
 }
 
 // parameter conversion of EKF3 parameters

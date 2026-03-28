@@ -79,6 +79,7 @@ public:
         k_param_networking_periph,
         k_param_rpm_sensor,
         k_param_g_rcin,
+        k_param_actuator_telem,
         k_param_sitl,
         k_param_ahrs,
         k_param_battery_balance,
@@ -102,6 +103,8 @@ public:
         k_param_dac,
         k_param__gcs,
         k_param_battery_tag,
+        k_param_servo_command_timeout_ms,
+        k_param_servo_telem_msg_rate,
     };
 
     AP_Int16 format_version;
@@ -193,6 +196,10 @@ public:
     AP_Int16 esc_extended_telem_rate;
 #endif
 #endif
+    AP_Int16 servo_command_timeout_ms;
+#endif
+#if AP_SERVO_TELEM_ENABLED
+    AP_Int16 servo_telem_msg_rate;
 #endif
 
     AP_Int8 debug;

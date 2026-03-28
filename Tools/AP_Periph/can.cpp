@@ -675,16 +675,23 @@ void AP_Periph_FW::handle_act_command(CanardInstance* canard_instance, CanardRxT
         return;
     }
 
+    bool valid_output = false;
     for (uint8_t i=0; i < cmd.commands.len; i++) {
         const auto &c = cmd.commands.data[i];
         switch (c.command_type) {
         case UAVCAN_EQUIPMENT_ACTUATOR_COMMAND_COMMAND_TYPE_UNITLESS:
             rcout_srv_unitless(c.actuator_id, c.command_value);
+            valid_output = true;
             break;
         case UAVCAN_EQUIPMENT_ACTUATOR_COMMAND_COMMAND_TYPE_PWM:
             rcout_srv_PWM(c.actuator_id, c.command_value);
+            valid_output = true;
             break;
         }
+    }
+
+    if (valid_output) {
+        actuator.last_command_ms = AP_HAL::millis();
     }
 }
 #endif // AP_PERIPH_RC_OUT_ENABLED
@@ -702,7 +709,7 @@ void AP_Periph_FW::handle_notify_state(CanardInstance* canard_instance, CanardRx
         yaw_earth = radians((float)tmp * 0.01f);
     }
     vehicle_state = msg.vehicle_state;
-    last_vehicle_state = AP_HAL::millis();
+    last_vehicle_state_ms = AP_HAL::millis();
 }
 #endif // AP_PERIPH_NOTIFY_ENABLED
 
@@ -1480,8 +1487,9 @@ void AP_Periph_FW::process1HzTasks(uint64_t timestamp_usec)
          * record the worst case memory usage.
          */
 
-        if (pool_peak_percent() > 70) {
-            printf("WARNING: ENLARGE MEMORY POOL\n");
+        const float pool_pct = pool_peak_percent();
+        if (pool_pct > 70) {
+            printf("WARNING: ENLARGE MEMORY POOL (peak=%f%%)\n", pool_pct);
         }
     }
 
@@ -1700,9 +1708,9 @@ void AP_Periph_FW::can_start()
 #endif
         if (can_iface_periph[i] != nullptr) {
 #if HAL_CANFD_SUPPORTED
-            can_iface_periph[i]->init(g.can_baudrate[i], g.can_fdbaudrate[i]*1000000U, AP_HAL::CANIface::NormalMode);
+            can_iface_periph[i]->init(g.can_baudrate[i], g.can_fdbaudrate[i]*1000000U);
 #else
-            can_iface_periph[i]->init(g.can_baudrate[i], AP_HAL::CANIface::NormalMode);
+            can_iface_periph[i]->init(g.can_baudrate[i]);
 #endif
         }
     }
@@ -1750,6 +1758,9 @@ uint8_t AP_Periph_FW::get_motor_number(const uint8_t esc_number) const
  */
 void AP_Periph_FW::esc_telem_update()
 {
+    // update telem lib, this invalidates stale data
+    esc_telem.update();
+
     uint32_t mask = esc_telem.get_active_esc_mask();
     while (mask != 0) {
         int8_t i = __builtin_ffs(mask) - 1;
@@ -1773,8 +1784,10 @@ void AP_Periph_FW::esc_telem_update()
             pkt.temperature = nan;
         }
         float rpm;
-        if (esc_telem.get_raw_rpm(i, rpm)) {
+        float error_rate;
+        if (esc_telem.get_raw_rpm_and_error_rate(i, rpm, error_rate)) {
             pkt.rpm = rpm;
+            pkt.error_count = error_rate;
         }
 
 #if AP_EXTENDED_ESC_TELEM_ENABLED
@@ -1783,8 +1796,6 @@ void AP_Periph_FW::esc_telem_update()
             pkt.power_rating_pct = power_rating_pct;
         }
 #endif
-
-        pkt.error_count = 0;
 
         uint8_t buffer[UAVCAN_EQUIPMENT_ESC_STATUS_MAX_SIZE];
         uint16_t total_size = uavcan_equipment_esc_Status_encode(&pkt, buffer, !canfdout());
@@ -1993,6 +2004,9 @@ void AP_Periph_FW::can_update()
 #endif
 #if AP_PERIPH_RPM_STREAM_ENABLED
         rpm_sensor_send();
+#endif
+#if AP_SERVO_TELEM_ENABLED
+        servo_telem_update();
 #endif
     }
     const uint32_t now_us = AP_HAL::micros();

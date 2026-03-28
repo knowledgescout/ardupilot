@@ -86,7 +86,6 @@ void SITL_State::_usage(void)
            "\t--rate|-r RATE           set SITL framerate\n"
            "\t--console|-C             use console instead of TCP ports\n"
            "\t--instance|-I N          set instance of SITL (adds 10*instance to all port numbers)\n"
-           // "\t--param|-P NAME=VALUE    set some param\n"  CURRENTLY BROKEN!
            "\t--synthetic-clock|-S     set synthetic clock mode\n"
            "\t--home|-O HOME           set start location (lat,lng,alt,yaw) or location name\n"
            "\t--model|-M MODEL         set simulation model\n"
@@ -125,7 +124,9 @@ static const struct {
     Aircraft *(*constructor)(const char *frame_str);
 } model_constructors[] = {
     { "quadplane",          QuadPlane::create },
+#if AP_SIM_XPLANE_ENABLED
     { "xplane",             XPlane::create },
+#endif  // AP_SIM_XPLANE_ENABLED
     { "firefly",            QuadPlane::create },
     { "+",                  MultiCopter::create },
     { "quad",               MultiCopter::create },
@@ -161,11 +162,21 @@ static const struct {
     { "balancebot",         BalanceBot::create },
     { "sailboat",           Sailboat::create },
     { "motorboat",          MotorBoat::create },
+#if AP_SIM_CRRCSIM_ENABLED
     { "crrcsim",            CRRCSim::create },
+#endif  // AP_SIM_CRRCSIM_ENABLED
+#if AP_SIM_JSBSIM_ENABLED
     { "jsbsim",             JSBSim::create },
+#endif  // AP_SIM_JSBSIM_ENABLED
+#if AP_SIM_FLIGHTAXIS_ENABLED
     { "flightaxis",         FlightAxis::create },
+#endif  // AP_SIM_FLIGHTAXIS_ENABLED
+#if AP_SIM_GAZEBO_ENABLED
     { "gazebo",             Gazebo::create },
+#endif  // AP_SIM_GAZEBO_ENABLED
+#if AP_SIM_LAST_LETTER_ENABLED
     { "last_letter",        last_letter::create },
+#endif  // AP_SIM_LAST_LETTER_ENABLED
     { "tracker",            Tracker::create },
     { "balloon",            Balloon::create },
     { "glider",             Glider::create },
@@ -173,13 +184,25 @@ static const struct {
     { "calibration",        Calibration::create },
     { "vectored",           Submarine::create },
     { "vectored_6dof",      Submarine::create },
+#if AP_SIM_SILENTWINGS_ENABLED
     { "silentwings",        SilentWings::create },
+#endif  // AP_SIM_SILENTWINGS_ENABLED
+#if AP_SIM_MORSE_ENABLED
     { "morse",              Morse::create },
+#endif  // AP_SIM_MORSE_ENABLED
+#if AP_SIM_AIRSIM_ENABLED
     { "airsim",             AirSim::create},
+#endif  // AP_SIM_AIRSIM_ENABLED
+#if AP_SIM_SCRIMMAGE_ENABLED
     { "scrimmage",          Scrimmage::create },
+#endif  // AP_SIM_SCRIMMAGE_ENABLED
     { "webots-python",      WebotsPython::create },
+#if AP_SIM_WEBOTS_ENABLED
     { "webots",             Webots::create },
+#endif  // AP_SIM_WEBOTS_ENABLED
+#if AP_SIM_JSON_ENABLED
     { "JSON",               JSON::create },
+#endif  // AP_SIM_JSON_ENABLED
     { "blimp",              Blimp::create },
     { "novehicle",          NoVehicle::create },
 #if AP_SIM_STRATOBLIMP_ENABLED
@@ -298,7 +321,6 @@ void SITL_State::_parse_command_line(int argc, char * const argv[])
         {"rate",            true,   0, 'r'},
         {"console",         false,  0, 'C'},
         {"instance",        true,   0, 'I'},
-        {"param",           true,   0, 'P'},
         {"synthetic-clock", false,  0, 'S'},
         {"home",            true,   0, 'O'},
         {"model",           true,   0, 'M'},
@@ -420,9 +442,6 @@ void SITL_State::_parse_command_line(int argc, char * const argv[])
             }
         }
         break;
-        case 'P':
-            _set_param_default(gopt.optarg);
-            break;
         case 'S':
             printf("Ignoring stale command-line parameter '-S'");
             break;
@@ -540,12 +559,12 @@ void SITL_State::_parse_command_line(int argc, char * const argv[])
             _usage();
             exit(0);
         case CMDLINE_SLAVE: {
-#if HAL_SIM_JSON_MASTER_ENABLED
+#if AP_SIM_JSON_MASTER_ENABLED
             const int32_t slaves = atoi(gopt.optarg);
             if (slaves > 0) {
                 ride_along.init(slaves);
             }
-#endif
+#endif  // AP_SIM_JSON_MASTER_ENABLED
             break;
         }
         default:
@@ -563,6 +582,10 @@ void SITL_State::_parse_command_line(int argc, char * const argv[])
         // scrolled off the screen:
         printf("You must specify a vehicle model.\n");
         exit(1);
+    }
+
+    if (AP::sitl() != nullptr) {  // some examples don't instantiate this object
+        AP::sitl()->init();
     }
 
     for (uint8_t i=0; i < ARRAY_SIZE(model_constructors); i++) {

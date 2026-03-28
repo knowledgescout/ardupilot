@@ -1,3 +1,5 @@
+# flake8: noqa
+
 """
 Emit docs in a form acceptable to the old Ardupilot wordpress docs site
 """
@@ -54,6 +56,8 @@ DO NOT EDIT
         t = '\n\n<h1>%s</h1>\n' % tag
 
         for param in g.params:
+            if not self.should_emit_param(param):
+                continue
             if not hasattr(param, 'DisplayName') or not hasattr(param, 'Description'):
                 continue
             d = param.__dict__

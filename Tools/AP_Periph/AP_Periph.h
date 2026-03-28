@@ -41,6 +41,8 @@
 #include "rc_in.h"
 #include "batt_balance.h"
 #include "battery_tag.h"
+#include "battery_bms.h"
+#include "actuator_telem.h"
 #include "networking.h"
 #include "serial_options.h"
 #if AP_SIM_ENABLED
@@ -78,9 +80,6 @@
 #define AP_PERIPH_HAVE_LED_WITHOUT_NOTIFY (defined(HAL_PERIPH_NEOPIXEL_COUNT_WITHOUT_NOTIFY) || AP_PERIPH_NCP5623_LED_WITHOUT_NOTIFY_ENABLED || AP_PERIPH_NCP5623_BGR_LED_WITHOUT_NOTIFY_ENABLED || AP_PERIPH_TOSHIBA_LED_WITHOUT_NOTIFY_ENABLED)
 
 #if AP_PERIPH_NOTIFY_ENABLED
-    #if !AP_PERIPH_RC_OUT_ENABLED && !defined(HAL_PERIPH_NOTIFY_WITHOUT_RCOUT)
-        #error "AP_PERIPH_NOTIFY_ENABLED requires AP_PERIPH_RC_OUT_ENABLED"
-    #endif
     #if AP_PERIPH_BUZZER_WITHOUT_NOTIFY_ENABLED
         #error "You cannot enable AP_PERIPH_NOTIFY_ENABLED and AP_PERIPH_BUZZER_WITHOUT_NOTIFY_ENABLED at the same time. Notify already includes it"
     #endif
@@ -115,6 +114,13 @@
  * HAL_PERIPH_LISTEN_FOR_SERIAL_UART_REBOOT_NON_DEBUG in hwdef.dat
  */
 #undef HAL_PERIPH_LISTEN_FOR_SERIAL_UART_REBOOT_CMD_PORT
+#endif
+
+#if AP_SERVO_TELEM_ENABLED
+    #include <AP_Servo_Telem/AP_Servo_Telem.h>
+    #if !AP_PERIPH_RC_OUT_ENABLED
+      #error"'AP_SERVO_TELEM_ENABLED' requires `AP_PERIPH_RC_OUT_ENABLED`"
+    #endif
 #endif
 
 #include "Parameters.h"
@@ -364,6 +370,13 @@ public:
     uint32_t last_esc_raw_command_ms;
     uint8_t  last_esc_num_channels;
 
+    // Track channels that have been output to by actuator commands
+    // Note there is a single timeout, channels are not tracked individually
+    struct {
+        uint32_t last_command_ms;
+        uint32_t mask;
+    } actuator;
+
     void rcout_init();
     void rcout_init_1Hz();
     void rcout_esc(int16_t *rc, uint8_t num_channels);
@@ -371,6 +384,16 @@ public:
     void rcout_srv_PWM(const uint8_t actuator_id, const float command_value);
     void rcout_update();
     void rcout_handle_safety_state(uint8_t safety_state);
+#endif
+
+#if AP_SERVO_TELEM_ENABLED
+    void servo_telem_update();
+    struct {
+        AP_Servo_Telem lib;
+        uint32_t last_update_ms;
+        uint32_t last_send_ms;
+        uint8_t last_send_index;
+    } servo_telem;
 #endif
 
 #if AP_PERIPH_RCIN_ENABLED
@@ -390,6 +413,14 @@ public:
 
 #if AP_PERIPH_BATTERY_TAG_ENABLED
     BatteryTag battery_tag;
+#endif
+
+#if AP_PERIPH_BATTERY_BMS_ENABLED
+    BatteryBMS battery_bms;
+#endif
+
+#if AP_PERIPH_ACTUATOR_TELEM_ENABLED
+    ActuatorTelem actuator_telem;
 #endif
     
 #if AP_PERIPH_SERIAL_OPTIONS_ENABLED
@@ -413,15 +444,11 @@ public:
     AP_Notify notify;
     uint64_t vehicle_state = 1; // default to initialisation
     float yaw_earth;
-    uint32_t last_vehicle_state;
+    uint32_t last_vehicle_state_ms;
 
     // Handled under LUA script to control LEDs
     float get_yaw_earth() { return yaw_earth; }
-    uint32_t get_vehicle_state() { return vehicle_state; }
-#elif defined(AP_SCRIPTING_ENABLED)
-    // create dummy methods for the case when the user doesn't want to use the notify object
-    float get_yaw_earth() { return 0.0; }
-    uint32_t get_vehicle_state() { return 0.0; }
+    uint64_t get_vehicle_state() { return vehicle_state; }
 #endif
 
 #if AP_SCRIPTING_ENABLED
@@ -533,7 +560,7 @@ public:
     void send_serial_monitor_data();
     int8_t get_default_tunnel_serial_port(void) const;
 
-    struct {
+    struct UARTMonitor {
         ByteBuffer *buffer;
         uint32_t last_request_ms;
         AP_HAL::UARTDriver *uart;
@@ -542,7 +569,8 @@ public:
         uint8_t protocol;
         uint32_t baudrate;
         bool locked;
-    } uart_monitor;
+    } uart_monitors[SERIALMANAGER_MAX_PORTS];
+    void send_serial_monitor_data_instance(UARTMonitor &monitor);
 #endif
 
     // handlers for incoming messages

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+# flake8: noqa
+
 # Copyright (c) 2008,2010,2011,2012,2013 Alexander Belchenko
 # All rights reserved.
 #
@@ -80,7 +82,7 @@ Options:
                     base = 16
                 try:
                     offset = int(a, base)
-                except:
+                except ValueError:
                     raise getopt.GetoptError('Bad offset value')
 
         if not args:
