@@ -691,7 +691,7 @@ void NavEKF3_core::readGpsData()
             gpsloc_fieldelevation.alt += (int32_t)(100.0f * stateStruct.position.z);
         }
 
-        if (!setOrigin(gpsloc_fieldelevation)) {
+        if (!setOriginLLH(gpsloc_fieldelevation)) {
             // set an error as an attempt was made to set the origin more than once
             INTERNAL_ERROR(AP_InternalError::error_t::flow_of_control);
             return;
@@ -1388,13 +1388,12 @@ ftype NavEKF3_core::MagDeclination(void) const
 /*
   Update the on ground and not moving check.
   Should be called once per IMU update.
-  Only updates when on ground and when operating without a magnetometer
+  Used for yaw fusion strategy selection, zero velocity fusion gating,
+  and accel bias learning inhibition during ground movement.
 */
 void NavEKF3_core::updateMovementCheck(void)
 {
-    const bool runCheck = onGround && (yaw_source_last == AP_NavEKF_Source::SourceYaw::GPS || yaw_source_last == AP_NavEKF_Source::SourceYaw::GPS_COMPASS_FALLBACK ||
-                                       yaw_source_last == AP_NavEKF_Source::SourceYaw::EXTNAV || yaw_source_last == AP_NavEKF_Source::SourceYaw::GSF || !use_compass());
-    if (!runCheck)
+    if (!onGround)
     {
         onGroundNotMoving = false;
         return;
